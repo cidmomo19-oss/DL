@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Secure Link Portal</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.1.1/crypto-js.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/lz-string/1.4.4/lz-string.min.js"></script>
+
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; background: #f8fafc; color: #334155; }
+        .hidden { display: none !important; }
+        .btn-primary { background-color: #2563eb; color: white; transition: all 0.2s; }
+        .btn-primary:active { transform: scale(0.98); background-color: #1d4ed8; }
+        
+        .protected-content {
+            -webkit-user-select: none;
+            -moz-user-select: none;
+            -ms-user-select: none;
+            user-select: none;
+            -webkit-touch-callout: none;
+            cursor: default;
+        }
+    </style>
+</head>
+<body class="min-h-screen flex items-center justify-center p-4">
+
+    <!-- 1. CREATE VIEW -->
+    <div id="create-view" class="w-full max-w-md bg-white rounded-2xl shadow-xl border border-gray-200 p-8 hidden">
+        <div class="flex items-center gap-3 mb-6">
+            <div class="p-3 bg-blue-50 rounded-full text-blue-600">
+                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path></svg>
+            </div>
+            <h1 class="text-xl font-bold text-gray-800">Secure Paste</h1>
+        </div>
+        
+        <textarea id="input-text" class="w-full h-32 p-4 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none text-sm transition" placeholder="Paste link video / teks di sini..."></textarea>
+        
+        <div class="mt-4">
+            <button onclick="generateLink()" class="w-full btn-primary font-bold py-3.5 rounded-xl shadow-lg shadow-blue-500/30 flex justify-center items-center">
+                Encrypt & Generate Link
+            </button>
+        </div>
+
+        <div id="result-area" class="hidden mt-6 pt-6 border-t border-gray-100">
+            <div class="flex gap-2 mb-6">
+                <input type="text" id="result-url" class="flex-1 bg-blue-50 text-blue-800 text-xs font-mono p-3 rounded-lg border border-blue-100 outline-none" readonly>
+                <button onclick="copyLink()" class="bg-gray-800 text-white px-4 rounded-lg font-bold text-xs hover:bg-gray-900">Copy</button>
+            </div>
+
+            <div class="bg-gray-50 p-4 rounded-xl border border-gray-200">
+                <p class="text-[10px] text-gray-500 font-bold mb-3 text-center uppercase tracking-widest">Shorten to Hide Length</p>
+                <div class="grid grid-cols-3 gap-2">
+                    <a id="btn-tinyurl" href="#" target="_blank" class="flex items-center justify-center bg-blue-600 text-white py-2 rounded text-[10px] font-bold">TinyURL</a>
+                    <a id="btn-isgd" href="#" target="_blank" class="flex items-center justify-center bg-blue-600 text-white py-2 rounded text-[10px] font-bold">Is.gd</a>
+                    <a id="btn-vgd" href="#" target="_blank" class="flex items-center justify-center bg-blue-600 text-white py-2 rounded text-[10px] font-bold">V.gd</a>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 2. CONTENT VIEW -->
+    <div id="content-view" class="w-full max-w-2xl bg-white rounded-2xl shadow-lg border border-gray-200 p-6 hidden">
+        <div class="flex justify-between items-center border-b border-gray-100 pb-4 mb-4">
+            <div class="flex items-center gap-2 text-green-600">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                <span class="text-[10px] font-bold uppercase tracking-widest">Encrypted Session Verified</span>
+            </div>
+            <!-- Hitungan sisa dihapus agar user tidak sadar ada limit -->
+        </div>
+        
+        <div id="final-content" class="protected-content text-gray-800 text-[17px] leading-relaxed whitespace-pre-wrap break-all select-none"></div>
+        
+        <p class="mt-8 text-[10px] text-gray-200 text-center uppercase tracking-widest">End-to-End Protection</p>
+    </div>
+
+    <script>
+        const PUBLIC_KEY = "SESSION_ENCRYPTION_V73"; 
+        let clickCount = 0;
+        const LIMIT = 3; // Berapa kali link boleh diklik sebelum hancur
+
+        // --- ANTI INTIP & ANTI COPAS ---
+        document.addEventListener('contextmenu', e => e.preventDefault());
+        document.addEventListener('keydown', e => {
+            if (e.ctrlKey && (e.key === 'u' || e.key === 's' || e.key === 'c' || e.key === 'v')) e.preventDefault();
+            if(e.keyCode == 123) e.preventDefault();
+        });
+
+        const createView = document.getElementById('create-view');
+        const contentView = document.getElementById('content-view');
+
+        function init() {
+            const hash = window.location.hash.substring(1);
+            
+            // CEK APAKAH SUDAH PERNAH DIBUKA (Session Lock)
+            if (hash && sessionStorage.getItem('page_opened')) {
+                alert("Sesi Riwayat Berakhir. Silakan buka kembali link asli.");
+                window.location.replace("about:blank");
+                return;
+            }
+
+            if (!hash) { 
+                createView.classList.remove('hidden'); 
+            } else {
+                decryptContent();
+            }
+        }
+
+        function generateLink() {
+            const text = document.getElementById('input-text').value;
+            if (!text) return;
+            const encrypted = CryptoJS.AES.encrypt(text, PUBLIC_KEY).toString();
+            const compressed = LZString.compressToEncodedURIComponent(encrypted);
+            const longUrl = window.location.origin + window.location.pathname + '#_' + compressed;
+            const encodedUrl = encodeURIComponent(longUrl);
+
+            document.getElementById('result-area').classList.remove('hidden');
+            document.getElementById('result-url').value = longUrl;
+
+            document.getElementById('btn-tinyurl').href = `https://tinyurl.com/create.php?url=${encodedUrl}`;
+            document.getElementById('btn-isgd').href = `https://is.gd/create.php?format=simple&url=${encodedUrl}`;
+            document.getElementById('btn-vgd').href = `https://v.gd/create.php?format=simple&url=${encodedUrl}`;
+        }
+
+        function decryptContent() {
+            try {
+                const data = window.location.hash.substring(2); 
+                const decompressed = LZString.decompressFromEncodedURIComponent(data);
+                const bytes = CryptoJS.AES.decrypt(decompressed, PUBLIC_KEY);
+                const original = bytes.toString(CryptoJS.enc.Utf8);
+                if (!original) throw new Error();
+
+                // TANDAI BAHWA HALAMAN SUDAH PERNAH DIBUKA
+                sessionStorage.setItem('page_opened', 'true');
+
+                // HAPUS HASH DARI ADDRESS BAR (Agar History kosong & link tidak bisa disalin)
+                history.replaceState(null, "", window.location.pathname);
+
+                createView.classList.add('hidden');
+                contentView.classList.remove('hidden');
+
+                const htmlContent = original.replace(/(https?:\/\/[^\s]+)/g, 
+                    '<a href="$1" target="_blank" class="secure-link text-blue-600 font-medium underline cursor-pointer">$1</a>');
+                
+                document.getElementById('final-content').innerHTML = htmlContent;
+                initSelfDestruct();
+            } catch (e) { 
+                window.location.replace("about:blank");
+            }
+        }
+
+        function copyLink() {
+            const el = document.getElementById("result-url");
+            el.select(); document.execCommand("copy");
+            const btn = event.target; btn.innerText = "Copied!";
+            setTimeout(() => btn.innerText = "Copy", 1500);
+        }
+
+        function initSelfDestruct() {
+            // JIKA USER TEKAN BACK (KEMBALI), LANGSUNG BUANG KE HALAMAN KOSONG
+            window.onpageshow = function(event) {
+                if (event.persisted) {
+                    window.location.replace("about:blank");
+                }
+            };
+
+            document.addEventListener('click', function(e) {
+                const target = e.target.closest('a');
+                if (target && target.classList.contains('secure-link')) {
+                    clickCount++;
+
+                    // Jika batas klik habis, langsung hancurkan halaman
+                    if (clickCount >= LIMIT) {
+                        setTimeout(() => {
+                            document.body.innerHTML = "";
+                            window.location.replace("about:blank");
+                        }, 500);
+                    }
+                }
+            }, true);
+        }
+
+        init();
+    </script>
+</body>
+</html>

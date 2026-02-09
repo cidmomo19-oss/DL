@@ -67,7 +67,6 @@
                 <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
                 <span class="text-[10px] font-bold uppercase tracking-widest">Encrypted Session Verified</span>
             </div>
-            <!-- Hitungan sisa dihapus agar user tidak sadar ada limit -->
         </div>
         
         <div id="final-content" class="protected-content text-gray-800 text-[17px] leading-relaxed whitespace-pre-wrap break-all select-none"></div>
@@ -78,7 +77,7 @@
     <script>
         const PUBLIC_KEY = "SESSION_ENCRYPTION_V73"; 
         let clickCount = 0;
-        const LIMIT = 3; // Berapa kali link boleh diklik sebelum hancur
+        const LIMIT = 3; 
 
         // --- ANTI INTIP & ANTI COPAS ---
         document.addEventListener('contextmenu', e => e.preventDefault());
@@ -90,10 +89,19 @@
         const createView = document.getElementById('create-view');
         const contentView = document.getElementById('content-view');
 
+        // --- FUNGSI PENGACAK STRING ---
+        function shuffleString(str) {
+            let arr = str.split('');
+            for (let i = arr.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                [arr[i], arr[j]] = [arr[j], arr[i]];
+            }
+            return arr.join('');
+        }
+
         function init() {
             const hash = window.location.hash.substring(1);
             
-            // CEK APAKAH SUDAH PERNAH DIBUKA (Session Lock)
             if (hash && sessionStorage.getItem('page_opened')) {
                 alert("Sesi Riwayat Berakhir. Silakan buka kembali link asli.");
                 window.location.replace("about:blank");
@@ -131,17 +139,18 @@
                 const original = bytes.toString(CryptoJS.enc.Utf8);
                 if (!original) throw new Error();
 
-                // TANDAI BAHWA HALAMAN SUDAH PERNAH DIBUKA
                 sessionStorage.setItem('page_opened', 'true');
-
-                // HAPUS HASH DARI ADDRESS BAR (Agar History kosong & link tidak bisa disalin)
                 history.replaceState(null, "", window.location.pathname);
 
                 createView.classList.add('hidden');
                 contentView.classList.remove('hidden');
 
-                const htmlContent = original.replace(/(https?:\/\/[^\s]+)/g, 
-                    '<a href="$1" target="_blank" class="secure-link text-blue-600 font-medium underline cursor-pointer">$1</a>');
+                // MODIFIKASI: Gunakan callback function untuk replace
+                // URL asli tetap di href, tapi teks yang tampil diacak pakai shuffleString
+                const htmlContent = original.replace(/(https?:\/\/[^\s]+)/g, function(url) {
+                    const scrambledText = shuffleString(url); 
+                    return `<a href="${url}" target="_blank" class="secure-link text-blue-600 font-medium underline cursor-pointer">${scrambledText}</a>`;
+                });
                 
                 document.getElementById('final-content').innerHTML = htmlContent;
                 initSelfDestruct();
@@ -158,7 +167,6 @@
         }
 
         function initSelfDestruct() {
-            // JIKA USER TEKAN BACK (KEMBALI), LANGSUNG BUANG KE HALAMAN KOSONG
             window.onpageshow = function(event) {
                 if (event.persisted) {
                     window.location.replace("about:blank");
@@ -169,8 +177,6 @@
                 const target = e.target.closest('a');
                 if (target && target.classList.contains('secure-link')) {
                     clickCount++;
-
-                    // Jika batas klik habis, langsung hancurkan halaman
                     if (clickCount >= LIMIT) {
                         setTimeout(() => {
                             document.body.innerHTML = "";
